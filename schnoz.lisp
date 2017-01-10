@@ -1,8 +1,8 @@
 ;; Common Lisp network analysis toolkit
 ;;
 ;; td : 
-;; binary/bitwise packet processing
-;; IP/ident/src/dest/proto assoc relations
+;; binary proc db record metadata (process header /after db store)
+;; IP/ident/src/dest/protoc assoc relations
 ;; source switching (isolation test)
 ;; statistical packet analysis -> borealis
 ;; chart of measures on packets by session target
@@ -62,7 +62,7 @@
 		     :promisc t 
 		     :snaplen 1500 
 		     :nbio t)
-    ;; (plokami:set-filter plokami::pcap "ip")
+    (plokami:set-filter plokami::pcap "ip")
 
     (setq begin (clock-time))
     (loop do 
@@ -91,7 +91,7 @@
 (defun delete-before-id (id)
   (psql-q '("delete from packet where id < " id)))
 
-(setq ip-header '(
+(setq ip-header fields '(
   (ver-ihl  :uint8) ;; 4 bits format + 4 bits length
   (tos      :uint8) ;; type of service
   (length   :uint16) ;; total length in octets
@@ -104,10 +104,60 @@
   (daddr    :uint32))) ;; destination addr
 
 
-(defun destruct-packet (byte-list)
-  ;; (extract-saddr x)
-  ;; (extract-daddr x)
-  ;; (extract-protocol x)
+(defun concat-bits (&rest vectors)
+  (reduce (lambda (a b) (concatenate
+		    'vector
+		    (if (typep a 'sequence) a (list a))
+		    (if (typep b 'sequence) b (list b))))
+          vectors))
+(defun list-to-bits (my-list)
+  (make-array (length my-list) :initial-contents my-list :element-type 'bit))
+(defun octet->u16 (upper lower)
+  (bit-smasher:int<- 
+   (list-to-bits (concat-bits (bit-smasher:bits<- upper)
+			      (bit-smasher:bits<- lower)))))
+(defun octet->u32 (a b c d)
+  (bit-smasher:int<- 
+   (list-to-bits (concat-bits (bit-smasher:bits<- a)
+			      (bit-smasher:bits<- b)
+			      (bit-smasher:bits<- c)
+			      (bit-smasher:bits<- d)))))
+(defun octets-to-string (byte-list)
+  (flexi-streams:octets-to-string byte-list :external-format :utf-8))
+
+(defun read-header (byte-list)
+
+  (defun read-stream ()
+    (flexi-streams:peak-byte stream))
+  (setq stream (flexi-streams:make-flexi-stream
+	     (flexi-streams:make-in-memory-input-stream
+	      byte-list))    
+   first-octet  (peek-byte stream)
+
+   ;; Packet Header Struct
+   version      (ldb (byte 4 4) first-octet)
+   ihl          (ldb (byte 0 4) first-octet)
+   tos          (peek-byte stream)
+   length       (octet->u16 (read-stream) (read-stream))
+   id           (octet->u16 (read-stream) (read-stream))
+   offset       (octet->u16 (read-stream) (read-stream))
+   ttl          (peek-byte stream)
+   protocol     (peek-byte stream)
+   checksum     (octet->u16 (read-stream) (read-stream))
+   saddr        (octet->u32 (read-stream) (read-stream)
+			    (read-stream) (read-stream))
+   daddr        (octet->u32 (read-stream) (read-stream)
+			    (read-stream) (read-stream)))
+
+  (list version ihl tos length id offset ttl protocol checksum saddr daddr))
+
+(defun process-last-batch ()
+  ;; (setq buf-list (pull-byte-lists))
+  ;; init/track runtime perfm. stats
+
+  ;; (mapcar 'record-header-info buf-list)
+
+  ;; review runtime stats
 )
 
 (defun packet-identified? (packet)  
