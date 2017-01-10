@@ -1,14 +1,18 @@
 ;; Common Lisp network analysis toolkit
 ;;
 ;; td : 
-;; binary proc db record metadata (process header /after db store)
+;; header process -> db tables
 ;; IP/ident/src/dest/protoc assoc relations
 ;; source switching (isolation test)
 ;; statistical packet analysis -> borealis
 ;; chart of measures on packets by session target
 ;; kommissar builtin reqs
 ;; device sql tables
-;; category lisp, better orm
+;; content process profile, async
+;; category lisp, better orm, clean
+
+(load "~/projects/schnoz//cl-cidr-notation/src/packages.lisp")
+(load "~/projects/schnoz//cl-cidr-notation/src/cl-cidr-notation.lisp")
 
 (defun available-devices ()
   (plokami:find-all-devs))
@@ -91,17 +95,20 @@
 (defun delete-before-id (id)
   (psql-q '("delete from packet where id < " id)))
 
-(setq ip-header fields '(
+(setq ip-header-fields '(
   (ver-ihl  :uint8) ;; 4 bits format + 4 bits length
   (tos      :uint8) ;; type of service
   (length   :uint16) ;; total length in octets
   (id       :uint16) ;; sender val
   (offset   :uint16) ;; where in datagram belongs
   (ttl      :uint8)  ;; time to live
-  (protocol :uint8) ;; protocol (see assinged nums)
+  (protocol :uint8)  ;; protocol (see assinged nums)
   (checksum :uint16) ;; header checksum
   (saddr    :uint32) ;; source addr
-  (daddr    :uint32))) ;; destination addr
+  (daddr    :uint32) ;; destination addr
+  'options            ;; security stuff,route info,see doc
+  'datagram-content
+))
 
 
 (defun concat-bits (&rest vectors)
@@ -122,48 +129,73 @@
 			      (bit-smasher:bits<- b)
 			      (bit-smasher:bits<- c)
 			      (bit-smasher:bits<- d)))))
-(defun octets-to-string (byte-list)
+(defun bytes-to-string (byte-list)
   (flexi-streams:octets-to-string byte-list :external-format :utf-8))
 
 (defun read-header (byte-list)
 
-  (defun read-stream ()
-    (flexi-streams:peak-byte stream))
+  (defun read-byte ()
+    (flexi-streams:peek-byte stream))
   (setq stream (flexi-streams:make-flexi-stream
 	     (flexi-streams:make-in-memory-input-stream
 	      byte-list))    
-   first-octet  (peek-byte stream)
+   first-octet  (read-byte)
 
-   ;; Packet Header Struct
    version      (ldb (byte 4 4) first-octet)
-   ihl          (ldb (byte 0 4) first-octet)
+   ihl          (ldb (byte 0 4) first-octet) ;; internet header length
    tos          (peek-byte stream)
-   length       (octet->u16 (read-stream) (read-stream))
-   id           (octet->u16 (read-stream) (read-stream))
-   offset       (octet->u16 (read-stream) (read-stream))
+   length       (octet->u16 (read-byte) (read-byte))
+   id           (octet->u16 (read-byte) (read-byte))
+   flags-n-offset       (octet->u16 (read-byte) (read-byte))
    ttl          (peek-byte stream)
-   protocol     (peek-byte stream)
-   checksum     (octet->u16 (read-stream) (read-stream))
-   saddr        (octet->u32 (read-stream) (read-stream)
-			    (read-stream) (read-stream))
-   daddr        (octet->u32 (read-stream) (read-stream)
-			    (read-stream) (read-stream)))
+   protocol     (peek-byte stream) ;; see prtcol #s
+   checksum     (octet->u16 (read-byte) (read-byte))
+   saddr        (octet->u32 (read-byte) (read-byte)
+			    (read-byte) (read-byte))
+   daddr        (octet->u32 (read-byte) (read-byte)
+			    (read-byte) (read-byte)))
 
   (list version ihl tos length id offset ttl protocol checksum saddr daddr))
 
-(defun process-last-batch ()
-  ;; (setq buf-list (pull-byte-lists))
-  ;; init/track runtime perfm. stats
+(defun num-to-ip (num)
+  (cl-cidr-notation:cidr-string num))
+(defun ip-to-num (ip-string)
+  (cl-cidr-notation:parse-cidr ip-string))
 
-  ;; (mapcar 'record-header-info buf-list)
+(defun records-between (table begin-id end-id)
+  (psql-q (list (c+ "select * from " table " where id > "
+	      (write-to-string begin-id) " and id < " (write-to-string 
+						       end-id) )))
+  (profile-s "SQL record query done") 
+)
+(defun profile-s (process-desc)
+  (format t "~% ~a at : ~a" process-desc (get-universal-time)))
 
-  ;; review runtime stats
+(defun process-packets! (packet-list)
+  (loop for i in packet-list       
+       do (print i)
+
+       ;; (read-to-header i)       
+       )
+  )
+
+(defun process-batch! (begin-id end-id)
+  (profile-s "Batch process startup")
+  
+  (setq packet-list 
+     (records-between "packet" begin-id end-id))  
+  
+  (process-packets! packet-list)
+
+  (profile-s "Batch process done")    
 )
 
 (defun packet-identified? (packet)  
 )
-(defun packet-identity (packet)
+(defun packet-identity? (packet)
 )
+(defun ip-addr-identity? (ip-num)
+  (psql-q "select * from where "))
 (defun register-packet! ()
 )
 
