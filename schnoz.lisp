@@ -1,13 +1,16 @@
 ;; Common Lisp network analysis toolkit
 ;; TD: 
+;; output silent
+;; capture for time
 ;; IP identity association relations
 ;; sql records (by source/dest/port) -> borealis display 
 ;; statistical packet analysis
-
+;; ^ (chart of measures on packets from test sessions <sitereq> -> net <-
+;; ^ (kommissar reqs)
 
 (defun db-connect ()
   (postmodern:connect-toplevel
- "schnoz" "postgres" "password" "localhost")
+ "schnoz" "postgres" "URA!URA!URA!" "localhost")
   (format 'nil "Database connected."))
 (defun db-restart ()
   (postmodern:disconnect-toplevel)
@@ -41,16 +44,25 @@
 )
 
 (defun capture-handler (sec usec caplen len buffer)
-;;  (format t "Packet length: ~A bytes,: ~A bytes~%" caplen buffer)
+  ;;  (format t "Packet length: ~A bytes,: ~A bytes~%" caplen buffer)
   ;; (map 'string #'code-char buffer)
+  "~"
+  ;; (print buffer) ;; -> #(249 38 38 38) -> stdio
+  (setq buf-str (print buffer))
+  "~"
+  ;; DEVICE ?
   (psql-q (list "insert into packet (buffer,length,stamp) values ("
-		"'" (map 'string #'code-char buffer) "',"
+		"'" buf-str "',"
 		(format nil "~a" len) ","
 		"(select CURRENT_TIMESTAMP))")))
 
-(defun capture-to-db ()
+(defun capture-to-db (device-name &optional time)
+  ;; (clock)
   (plokami:with-pcap-interface 
-      (plokami::pcap "wlan0" :promisc t :snaplen 1500 :nbio t)
+      (plokami::pcap device-name 
+		     :promisc t 
+		     :snaplen 1500 
+		     :nbio t)
     (plokami:set-filter plokami::pcap "ip")
     (loop
        (plokami:capture plokami::pcap -1 
@@ -58,4 +70,13 @@
 			  (capture-handler sec usec caplen len buffer)))
        (sleep 0.01)))
   )
+(defun capture-for-time (device-name time-secs)
+  (capture-to-db time-secs))
+
+(defun capture-wlan0 () (capture-to-db "wlan0"))
+(defun capture-eth0 () (capture-to-db "eth0"))
+
+(defun delete-before (date) (psql-q '()))
+(defun select-by-identity (identity) 
+  (psql-q '()))
 
