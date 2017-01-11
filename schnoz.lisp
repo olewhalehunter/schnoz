@@ -1,10 +1,11 @@
 ;; Common Lisp network analysis toolkit
 ;;
 ;; td : 
-;; mac addr translate
 ;; ip db register 
 ;; packet metadata db register
 ;; ident db register
+;; block prescription gen
+;; block new ident/ip
 ;; network map
 ;; source switching (isolation test)
 ;; ip firewall from lisp
@@ -14,7 +15,6 @@
 ;; device sql tables
 ;; content process profile, async
 ;; category lisp, better orm, clean
-;; ipv6 vs ipv4 packets, all on 6 rn
 
 (defun load-reqs ()
   (load "~/projects/schnoz//cl-cidr-notation/src/packages.lisp")
@@ -165,7 +165,6 @@
   (cl-cidr-notation:parse-cidr ip-string))
 
 (defun records-between (table values begin-id end-id) 
- 
    (q (c+ "select " values " from " table " where id > "
 	      (write-to-string begin-id) " and id < " (write-to-string 
 						       end-id)))
@@ -230,15 +229,21 @@
 )
 
 
+(defun scan-MAC-text-addr ()
+  (c+ (hex (in-byte)) ":" (hex (in-byte)) ":"
+      (hex (in-byte)) ":" (hex (in-byte)) ":"
+      (hex (in-byte)) ":" (hex (in-byte)))
+)
+(defun scan-MAC-numeric-addr ()
+  (octet->6bytes (in-byte) (in-byte) (in-byte)
+		 (in-byte) (in-byte) (in-byte)))
 (defun read-ethernet-frame (byte-list)
   (setq frame-stream (flexi-streams:make-flexi-stream
 	     (flexi-streams:make-in-memory-input-stream
 	      byte-list))
 
-   dest-mac   (octet->6bytes (in-byte) (in-byte) (in-byte)
-			     (in-byte) (in-byte) (in-byte))
-   src-mac    (octet->6bytes (in-byte) (in-byte) (in-byte)
-			     (in-byte) (in-byte) (in-byte))
+   dest-mac   (scan-MAC-text-addr)
+   src-mac    (scan-MAC-text-addr)
    oct1 (in-byte) oct2 (in-byte)
    ether-type (let ((val (octet->u16 oct1 oct2)))
 		(cond ((and (= oct1 134) (= oct2 221)) 'ipv6)		      
@@ -252,9 +257,11 @@
 	      ((eq ether-type 'ipv6) (process-ipv6-data frame-stream)))))
 
 (defun process-packet-buf! (buf-list)
-  (setq byte-list (read-from-string (elt buf-list 0)))
-
-  (setq metadata (read-ethernet-frame byte-list))
+  (setq byte-list (read-from-string (elt buf-list 0))
+     time (elt buf-list 1))
+  (setq metadata (list
+	       (read-ethernet-frame byte-list)
+	       "db store time:" time))
 
   (format t "~%~a ~%" metadata)
 )
@@ -268,7 +275,7 @@
   (profile-s "Batch process startup")
   
   (process-packets! 
-   (records-between "packet" "buffer" begin-id end-id))
+   (records-between "packet" "buffer,stamp" begin-id end-id))
   (profile-s "SQL record query done") 
 
   (profile-s "Batch process done")   

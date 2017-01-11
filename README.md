@@ -21,24 +21,28 @@ connect to the database and capture traffic
 
 process packet contents
 ```lisp
-(latest-batch! 3) ;; read last 3 packets from db ->
+(latest-batch! 4) ;; read last 4 packets from db ->
 
 "Batch process startup at : 3693092398"
 
-(dest-mac: 272883577289159 src-mac: 198414855633894 ether-type: IPV6 86 dd
- (ver: 6 len: 1358 traf class: 0 flow class: (00 00 00) next-header: 17 addrs:
-  2607:f8b0:401a:0026:0000:0000:0000:000c
-  2601:02c6:0100:1ed5:a5c4:9f50:7cb3:b234)) 
+((dest-mac: f8:2f:a8:b0:79:c7 src-mac: b4:75:0e:fc:fb:e6 ether-type: IPV4 08 00
+  (4 52 54544 6 50.18.192.251 192.168.1.249))
+ db store time: 3693126819) 
 
-(dest-mac: 272883577289159 src-mac: 198414855633894 ether-type: IPV6 86 dd
- (ver: 6 len: 1358 traf class: 0 flow class: (00 00 00) next-header: 17 addrs:
-  2607:f8b0:401a:0026:0000:0000:0000:000c
-  2601:02c6:0100:1ed5:a5c4:9f50:7cb3:b234)) 
+((dest-mac: b4:75:0e:fc:fb:e6 src-mac: f8:2f:a8:b0:79:c7 ether-type: IPV4 08 00
+  (4 52 64935 6 192.168.1.249 50.18.192.251))
+ db store time: 3693126820) 
 
-(dest-mac: 272883577289159 src-mac: 198414855633894 ether-type: IPV6 86 dd
- (ver: 6 len: 1358 traf class: 0 flow class: (00 00 00) next-header: 17 addrs:
-  2607:f8b0:401a:0026:0000:0000:0000:000c
-  2601:02c6:0100:1ed5:a5c4:9f50:7cb3:b234)) 
+((dest-mac: f8:2f:a8:b0:79:c7 src-mac: b4:75:0e:fc:fb:e6 ether-type: IPV6 86 dd
+  (ver: 6 len: 32 traf class: 0 flow class: (00 00 00) next-header: 6 addrs:
+   2607:f8b0:4000:080c:0000:0000:0000:2005
+   2601:02c6:0100:1ed5:a5c4:9f50:7cb3:b234))
+ db store time: 3693126822) 
+
+((dest-mac: f8:2f:a8:b0:79:c7 src-mac: b4:75:0e:fc:fb:e6 ether-type: ARP 08 06
+  NIL)
+ db store time: 3693126823) 
+
 
 "SQL record query done at : 3693092398"
 "Batch process done at : 3693092398"
@@ -47,10 +51,10 @@ process packet contents
 
 # Development
 
-tools such as wireshark can be used to develop packet formats and data byte by byte
-for schnoz datagram parsing and network capabilities
-
-use bitwise functions such as 'concat-bits or 'octet->u16 from schnoz.lisp to distribute and pack bit values from packet buffers
+use bitwise functions such as 'hex, 'concat-bits or 'octet->u16 from schnoz.lisp to distribute and pack bit values from packet buffers and adress representations
 
 SQL records in database are compatible with other statistical analysis platforms such as R or any capable of connecting to the sql server
+
+tools such as wireshark can be used to develop packet formats and data byte by byte
+for schnoz datagram parsing and network capabilities
 
