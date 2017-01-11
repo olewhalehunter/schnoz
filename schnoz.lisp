@@ -1,20 +1,19 @@
 ;; Common Lisp network analysis toolkit
 ;;
 ;; td : 
-;; pull whois cache
-;; ident db register
-;; block prescription gen
-;; block new ident/ip
-;; empty query case
+;; whois parse -> org, address, netrange
+;; -> ident db register
+;; block prescription list gen -> sh
+;; daily interval sniff scheduler
 ;; network map
 ;; source switching (isolation test)
-;; ip firewall from lisp
 ;; statistical packet analysis -> borealis
 ;; chart of measures on packets by session target
 ;; kommissar builtin reqs
 ;; device sql tables
-;; content process profile, async
 ;; category lisp, better orm, clean
+;; empty query case
+
 
 (defun load-reqs ()
   (load "config.lisp")
@@ -38,6 +37,7 @@
 	      "saddr BIGINT,"
 	      "daddr BIGINT,"
 	      "length BIGINT,"
+	      "device VARCHAR(10),"
 	      "stamp TIMESTAMP without time zone)"))
   (psql-q   '("create table ip ("
 	      "id SERIAL, "
@@ -81,12 +81,11 @@
 
     (setq begin (clock-time))
     (loop do 
-	 (plokami:capture plokami::pcap -1 
-			  (lambda (sec usec caplen len buffer)
-			    
-			    (store-capture! sec usec caplen len buffer)
-			   ;; (check-ip packet)
-			    ))
+	 (plokami:capture 
+	  plokami::pcap -1 
+	  (lambda (sec usec caplen len buffer)			    
+	    (store-capture! sec usec caplen len buffer)
+	    ))
 	 (sleep 0.01)
        until (> (clock-time) (+ begin time-seconds)))
        ))
@@ -145,7 +144,6 @@
   (flexi-streams:octets-to-string byte-list :external-format :utf-8))
 (defun hex-to-int (hex-str) (bit-smasher::int<- hex-str))
 (defun ipv6-addr-string (num)
-
   (c+ (bit-smasher:hex<- (ldb (byte 2 0) num))
       (bit-smasher:hex<- (ldb (byte 2 2) num)) ":"
       (bit-smasher:hex<- (ldb (byte 2 4) num)) 
@@ -160,8 +158,7 @@
       (bit-smasher:hex<- (ldb (byte 2 22) num))  ":"
       (bit-smasher:hex<- (ldb (byte 2 24) num)) 
       (bit-smasher:hex<- (ldb (byte 2 26) num)) 
-      )
-)
+      ))
 
 (defun num-to-ip (num)
   (cl-cidr-notation:cidr-string num))
@@ -262,7 +259,7 @@
   (q "select * from ip where addr='" addr "'"))
 (defun register-new-addr! (addr-str) ;; -> id key
   (format t "~a not found in db,~%" addr-str)
-  (format t "register whois info against whois cache~%")
+  ;; (register whois info against whois cache)
 
   (insert-ip! addr-str)
   (setq addr-id (car (car 
@@ -299,7 +296,7 @@
 		  ((eq type 'IPV4) (nth 2 ip-frame))
 		  (t nil))
      )
-  (format t "~%~a ~%" data) 
+  (format t "~%~a ~%" data type) 
 
   (setq src-ip-id (ip-registered? saddr)
      dest-ip-id (ip-registered? daddr))
