@@ -10,6 +10,7 @@
 ;; device sql tables
 ;; content process profile, async
 ;; category lisp, better orm, clean
+;; ipv6 vs ipv4 packets, all on 6 rn
 
 (load "~/projects/schnoz//cl-cidr-notation/src/packages.lisp")
 (load "~/projects/schnoz//cl-cidr-notation/src/cl-cidr-notation.lisp")
@@ -95,21 +96,30 @@
 (defun delete-before-id (id)
   (psql-q '("delete from packet where id < " id)))
 
-(setq ip-header-fields '(
-  (ver-ihl  :uint8) ;; 4 bits format + 4 bits length
-  (tos      :uint8) ;; type of service
-  (length   :uint16) ;; total length in octets
-  (id       :uint16) ;; sender val
-  (offset   :uint16) ;; where in datagram belongs
-  (ttl      :uint8)  ;; time to live
-  (protocol :uint8)  ;; protocol (see assinged nums)
-  (checksum :uint16) ;; header checksum
-  (saddr    :uint32) ;; source addr
-  (daddr    :uint32) ;; destination addr
-  'options            ;; security stuff,route info,see doc
-  'datagram-content
+(setq ipv4-header-fields '(
+			(ver-ihl  :uint8) ;; 4 bits format + 4 bits length
+			(tos      :uint8) ;; type of service
+			(length   :uint16) ;; total length in octets
+			(id       :uint16) ;; sender val
+			(offset   :uint16) ;; where in datagram belongs
+			(ttl      :uint8)  ;; time to live
+			(protocol :uint8)  ;; protocol (see assinged nums)
+			(checksum :uint16) ;; header checksum
+			(saddr    :uint32) ;; source addr
+			(daddr    :uint32) ;; destination addr
+			'options            ;; security stuff,route info,see doc
+			'datagram-content
+			))
+(setq ipv6-header-field '(
+		       (version        4bits) ;; 0110
+		       (traffic-class  :uint8)		       
+		       (flow-label     20bits)
+		       (Payload-length :uint16)
+		       (next-header    :uint8) ;; same as ipv4 protocol #
+		       (hop-limit      :uint8)
+		       (source-addr    128bits)
+		       (dest-addr      128bits)
 ))
-
 
 (defun concat-bits (&rest vectors)
   (reduce (lambda (a b) (concatenate
@@ -129,66 +139,116 @@
 			      (bit-smasher:bits<- b)
 			      (bit-smasher:bits<- c)
 			      (bit-smasher:bits<- d)))))
+(defun octet->u128 (a b c d e f)
+  (bit-smasher:int<- 
+   (list-to-bits (concat-bits (bit-smasher:bits<- a)
+			      (bit-smasher:bits<- b)
+			      (bit-smasher:bits<- c)
+			      (bit-smasher:bits<- d)
+			      (bit-smasher:bits<- e)
+			      (bit-smasher:bits<- f)))))
 (defun bytes-to-string (byte-list)
   (flexi-streams:octets-to-string byte-list :external-format :utf-8))
-
-(defun read-header (byte-list)
-
-  (defun read-byte ()
-    (flexi-streams:peek-byte stream))
-  (setq stream (flexi-streams:make-flexi-stream
-	     (flexi-streams:make-in-memory-input-stream
-	      byte-list))    
-   first-octet  (read-byte)
-
-   version      (ldb (byte 4 4) first-octet)
-   ihl          (ldb (byte 0 4) first-octet) ;; internet header length
-   tos          (peek-byte stream)
-   length       (octet->u16 (read-byte) (read-byte))
-   id           (octet->u16 (read-byte) (read-byte))
-   flags-n-offset       (octet->u16 (read-byte) (read-byte))
-   ttl          (peek-byte stream)
-   protocol     (peek-byte stream) ;; see prtcol #s
-   checksum     (octet->u16 (read-byte) (read-byte))
-   saddr        (octet->u32 (read-byte) (read-byte)
-			    (read-byte) (read-byte))
-   daddr        (octet->u32 (read-byte) (read-byte)
-			    (read-byte) (read-byte)))
-
-  (list version ihl tos length id offset ttl protocol checksum saddr daddr))
+(defun hex-to-int (hex-str) (bit-smasher::int<- hex-str))
 
 (defun num-to-ip (num)
   (cl-cidr-notation:cidr-string num))
 (defun ip-to-num (ip-string)
   (cl-cidr-notation:parse-cidr ip-string))
 
-(defun records-between (table begin-id end-id)
-  (psql-q (list (c+ "select * from " table " where id > "
+(defun records-between (table values begin-id end-id) 
+ 
+   (q (c+ "select " values " from " table " where id > "
 	      (write-to-string begin-id) " and id < " (write-to-string 
-						       end-id) )))
-  (profile-s "SQL record query done") 
+						       end-id)))
 )
 (defun profile-s (process-desc)
   (format t "~% ~a at : ~a" process-desc (get-universal-time)))
 
+(defun in-byte () (read-byte stream))
+
+(defun read-ipv4-header (byte-list) 
+
+  (setq stream (flexi-streams:make-flexi-stream
+	     (flexi-streams:make-in-memory-input-stream
+	      byte-list))
+
+   first-octet  (in-byte)
+
+   version      (ldb (byte 0 4) first-octet)
+   ihl          (ldb (byte 4 4) first-octet)
+   tos          (in-byte)
+   length       (octet->u16 (in-byte) (in-byte))
+   id           (octet->u16 (in-byte) (in-byte))
+   flags-n-offset       (octet->u16 (in-byte) (in-byte))
+   ttl          (in-byte)
+   protocol     (in-byte) ;; see prtcol #s
+   checksum     (octet->u16 (in-byte) (in-byte))
+   saddr        (octet->u32 (in-byte) (in-byte)
+			    (in-byte) (in-byte))
+   daddr        (octet->u32 (in-byte) (in-byte)
+			    (in-byte) (in-byte)))
+
+  (list version ihl tos length id flags-n-offset 
+	ttl protocol checksum saddr daddr))
+(defun read-ipv6-header (byte-list) 
+
+  (setq stream (flexi-streams:make-flexi-stream
+	     (flexi-streams:make-in-memory-input-stream
+	      byte-list))
+
+   first-octet  (in-byte)
+
+   version      (ldb (byte 0 4) first-octet) 
+   traf-class1  (ldb (byte 4 4) first-octet) 
+   second-octet (in-byte)                    
+
+   traf-class2 (ldb (byte 0 4) second-octet) 
+   flow-label1 (ldb (byte 4 4) second-octet) 
+
+   flow-label2 (octet->u16 (in-byte) (in-byte)) 
+   length      (octet->u16 (in-byte) (in-byte))
+   next-header (in-byte)
+   hop-limit   (in-byte)   
+   saddr        (octet->u128 (in-byte) (in-byte)
+			    (in-byte) (in-byte)
+			    (in-byte) (in-byte))
+   daddr        (octet->u128 (in-byte) (in-byte)
+			    (in-byte) (in-byte)
+			    (in-byte) (in-byte)))
+
+  (list version length next-header saddr daddr))
+(defun read-ethernet-frame (byte-list)
+)
+
+(defun process-packet-buf! (buf-list)
+  (setq byte-list (read-from-string (elt buf-list 0)))
+
+  (setq metadata (read-ipv6-header byte-list))
+  (print buf-list)
+  (format t "~%~a ~%" metadata)
+)
 (defun process-packets! (packet-list)
   (loop for i in packet-list       
-       do (print i)
+       do (process-packet-buf! i)))
 
-       ;; (read-to-header i)       
-       )
-  )
-
+(defun latest-packet-id ()
+  (caar (psql-q '("select max(id) from packet"))))
 (defun process-batch! (begin-id end-id)
   (profile-s "Batch process startup")
   
-  (setq packet-list 
-     (records-between "packet" begin-id end-id))  
-  
-  (process-packets! packet-list)
+  (process-packets! 
+   (records-between "packet" "buffer" begin-id end-id))
+  (profile-s "SQL record query done") 
 
-  (profile-s "Batch process done")    
+  (profile-s "Batch process done")   
+  (format 
+   t (concatenate 'string
+		  "~%~%"
+		  " " rr "|~%~%"))
 )
+(defun latest-batch! (n)
+  (process-batch! (- (latest-packet-id) (+ n 1)) (latest-packet-id)))
 
 (defun packet-identified? (packet)  
 )
