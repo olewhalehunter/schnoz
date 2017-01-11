@@ -1,11 +1,11 @@
 ;; Common Lisp network analysis toolkit
 ;;
 ;; td : 
-;; ip db register 
-;; packet metadata db register
+;; pull whois cache
 ;; ident db register
 ;; block prescription gen
 ;; block new ident/ip
+;; empty query case
 ;; network map
 ;; source switching (isolation test)
 ;; ip firewall from lisp
@@ -17,6 +17,7 @@
 ;; category lisp, better orm, clean
 
 (defun load-reqs ()
+  (load "config.lisp")
   (load "~/projects/schnoz//cl-cidr-notation/src/packages.lisp")
   (load "~/projects/schnoz//cl-cidr-notation/src/cl-cidr-notation.lisp")
 ) (load-reqs)
@@ -24,7 +25,7 @@
   (plokami:find-all-devs))
 (defun db-connect ()
   (postmodern:connect-toplevel
- "schnoz" "postgres" "URA!URA!URA!" "localhost")
+ db-name db-user db-pass db-addr) ;; config.lisp
   (format 'nil "Database connected."))
 (defun db-restart ()
   (postmodern:disconnect-toplevel)
@@ -33,6 +34,9 @@
   (psql-q   '("create table packet ("
 	      "id SERIAL, "
 	      "buffer TEXT,"
+	      "type TEXT," ;; IPV4/6, ARP
+	      "saddr BIGINT,"
+	      "daddr BIGINT,"
 	      "length BIGINT,"
 	      "stamp TIMESTAMP without time zone)"))
   (psql-q   '("create table ip ("
@@ -48,10 +52,11 @@
   (apply #'concatenate 'string strings))
 (defun join-str (seq delim)
   (format nil (c+ "~{~A~^" delim "~}") seq))
-(defun q (query)
-  (postmodern:query query))
 (defun psql-q (query-seq)  
-  (q (join-str query-seq " ")))
+  (q (join-str query-seq " "))) ;; messy, remove
+(defun q (&rest strings)
+  (postmodern:query
+   (apply  #'concatenate 'string strings)))
 (defun insert! (table values)  
   (psql-q (list
    "insert into " 
@@ -86,7 +91,6 @@
        until (> (clock-time) (+ begin time-seconds)))
        ))
   
-
 (defun d~ () 
   (handler-case (progn (format 
 			t (concatenate 'string
@@ -164,11 +168,6 @@
 (defun ip-to-num (ip-string)
   (cl-cidr-notation:parse-cidr ip-string))
 
-(defun records-between (table values begin-id end-id) 
-   (q (c+ "select " values " from " table " where id > "
-	      (write-to-string begin-id) " and id < " (write-to-string 
-						       end-id)))
-)
 (defun profile-s (process-desc)
   (format t "~% ~a at : ~a" process-desc (get-universal-time)))
 
@@ -186,6 +185,7 @@
       (hex (in-byte)) (hex (in-byte)) ":"
       (hex (in-byte)) (hex (in-byte)) ":"
       (hex (in-byte)) (hex (in-byte))))
+
 (defun process-ipv6-data (stream) 
   (setq first-byte (in-byte)
      version (ldb (byte 4 4) first-byte)
@@ -209,7 +209,6 @@
 	"next-header:" next-header
 	"addrs:" saddr daddr)
 )
-
 (defun process-ipv4-data (stream) 
   (setq ver-ihl (in-byte)
      ihl  (ldb (byte 4 4) ver-ihl)
@@ -227,7 +226,6 @@
   (list ihl length id protocol (num-to-ip saddr)
 	(num-to-ip daddr))
 )
-
 
 (defun scan-MAC-text-addr ()
   (c+ (hex (in-byte)) ":" (hex (in-byte)) ":"
@@ -256,26 +254,85 @@
 	(cond ((eq ether-type 'ipv4) (process-ipv4-data frame-stream))
 	      ((eq ether-type 'ipv6) (process-ipv6-data frame-stream)))))
 
-(defun process-packet-buf! (buf-list)
-  (setq byte-list (read-from-string (elt buf-list 0))
-     time (elt buf-list 1))
-  (setq metadata (list
-	       (read-ethernet-frame byte-list)
-	       "db store time:" time))
+(defun ip-registered? (ip)
+  (caar (q "select id from ip where addr = '" ip "'")))
+(defun insert-ip! (addr)
+  (q "insert into ip (addr) values ('" addr "')"))
+(defun sql-get-ip (addr)
+  (q "select * from ip where addr='" addr "'"))
+(defun register-new-addr! (addr-str) ;; -> id key
+  (format t "~a not found in db,~%" addr-str)
+  (format t "register whois info against whois cache~%")
 
-  (format t "~%~a ~%" metadata)
+  (insert-ip! addr-str)
+  (setq addr-id (car (car 
+		   (sql-get-ip addr-str))))
+
+  (format t "new address registed in db #~a~%~%" addr-id)
+  addr-id
 )
+
+(defun to-str (x)
+  (format nil "~a" x))
+(defun update-packet-field (packet-id field value)
+  (q "update packet set " field " = " value " where id = " (to-str packet-id)))
+
+(defun update-packet-info! (packet-id length type saddr-id daddr-id)
+  (q "update packet set length = " (to-str length) ",type = '" (to-str type) "'"
+     "  where id = " (to-str packet-id))
+  (if saddr-id (update-packet-field packet-id "saddr" (to-str saddr-id)))
+  (if daddr-id (update-packet-field packet-id "daddr" (to-str daddr-id)))
+)
+
+(defun process-packet! (packet-info) 
+  (setq packet-id (elt packet-info 0)
+     byte-list (read-from-string (elt packet-info 1))
+     time (elt packet-info 2))
+  (setq data (list
+	       (read-ethernet-frame byte-list)
+	       "db store time:" time)
+     type (nth 5 (car data))
+     ip-frame (nth 8 (car data))
+     saddr (nth 11 ip-frame) ;; needs concise bind
+     daddr (nth 12 ip-frame)
+     length (cond ((eq type 'IPV6) (nth 3 ip-frame))
+		  ((eq type 'IPV4) (nth 2 ip-frame))
+		  (t nil))
+     )
+  (format t "~%~a ~%" data) 
+
+  (setq src-ip-id (ip-registered? saddr)
+     dest-ip-id (ip-registered? daddr))
+  
+  (update-packet-info! packet-id
+		       length
+		       type
+		       (if src-ip-id 
+			   (format t "Source addr already registered~%") 
+			   (register-new-addr! saddr))
+		       (if dest-ip-id 
+			   (format t "Destination addr already registered~%")
+			   (register-new-addr! daddr)))
+  )
+  
 (defun process-packets! (packet-list)
   (loop for i in packet-list       
-       do (process-packet-buf! i)))
+       do (process-packet! i)))
 
 (defun latest-packet-id ()
   (caar (psql-q '("select max(id) from packet"))))
+
+(defun records-between (table values begin-id end-id) 
+   (q (c+ "select " values " from " table " where id > "
+	      (write-to-string begin-id) " and id < " (write-to-string 
+						       end-id)))
+   ;; empty case
+)
 (defun process-batch! (begin-id end-id)
   (profile-s "Batch process startup")
   
   (process-packets! 
-   (records-between "packet" "buffer,stamp" begin-id end-id))
+   (records-between "packet" "id,buffer,stamp" begin-id end-id))
   (profile-s "SQL record query done") 
 
   (profile-s "Batch process done")   
@@ -283,17 +340,7 @@
 )
 (defun latest-batch! (n)
   (process-batch! (- (latest-packet-id) (+ n 1)) (latest-packet-id)))
-
-(defun packet-identified? (packet)  
-)
-(defun packet-identity? (packet)
-)
-(defun ip-addr-identity? (ip-num)
-  (psql-q "select * from where "))
-(defun register-packet! ()
-)
-
-
+  
 (defun select-by-identity (identity) 
   (psql-q '("select from packetident where packet = identity")))
 (defun delete-before-id (id)
