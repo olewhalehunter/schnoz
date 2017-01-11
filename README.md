@@ -2,11 +2,11 @@
 
 Lispy network processing.
 
-requires postgreSQL; [postmodern](https://github.com/marijnh/Postmodern), flexi-streams, bit-smasher, [cl-cidr-notation](https://github.com/AccelerationNet/cl-cidr-notation), symbol-munger, alexandria, ipcalc-lisp, cl-ppcre, ipand [plokami](https://github.com/atomontage/plokami) are available on quicklisp
+requires postgreSQL; [postmodern](https://github.com/marijnh/Postmodern), flexi-streams, bit-smasher, [cl-cidr-notation](https://github.com/AccelerationNet/cl-cidr-notation), symbol-munger, alexandria, ipcalc-lisp, cl-ppcre, and [plokami](https://github.com/atomontage/plokami) are available on quicklisp
 
 # Install
 
-build an SBCL image with dependencies and run
+install and start a postgresql server, build an SBCL image with dependencies and run
 ```sh
 sh run.sh
 ```
@@ -21,7 +21,7 @@ connect to the database and capture traffic
 
 process packet contents
 ```lisp
-(latest-batch! 5) ;; last 5 packets ->
+(latest-batch! 5) ;; read last 5 packets from db ->
 
 "Batch process startup at : 3693092398"
 (272883577289159 198414855633894 IPV6 (8198 57 8764690268168 13194139533312)) 
@@ -38,3 +38,13 @@ process packet contents
 "Batch process done at : 3693092398"
 
 ```'
+
+# Development
+
+tools such as wireshark can be used to analyze packet formats and data byte by byte
+for debugging datagram parsing
+
+use bitwise functions such as 'concat-bits or 'octet->u16 from schnoz.lisp to distribute and pack bit values from packet buffers
+
+SQL records in database are compatible with other statistical analysis platforms such as R or any capable of connecting to the sql server
+

@@ -1,7 +1,7 @@
 ;; Common Lisp network analysis toolkit
 ;;
 ;; td : 
-;; ipv6 transl, network map
+;; ipv6 transl (as scanning hex bytes), network map
 ;; dataram process -> db tables
 ;; IP/ident/src/dest/protoc assoc relations
 ;; source switching (isolation test)
@@ -184,10 +184,13 @@
      flow-label2 (octet->u16 (in-byte) (in-byte)) 
      length      (octet->u16 (in-byte) (in-byte))
      next-header (in-byte)
-     hop-limit   (in-byte)   
+     hop-limit   (in-byte)
+
+     ;; manual hex in
      saddr        (octet->u128 (in-byte) (in-byte)
 			       (in-byte) (in-byte)
 			       (in-byte) (in-byte))
+
      daddr        (octet->u128 (in-byte) (in-byte)
 			       (in-byte) (in-byte)
 			       (in-byte) (in-byte))) 
