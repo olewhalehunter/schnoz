@@ -2,5 +2,5 @@
 
 Lispy network processing.
 
-requires Postgre-SQL + [postmodern](https://github.com/marijnh/Postmodern) and [plokami](https://github.com/atomontage/plokami)
+requires postgreSQL; [postmodern](https://github.com/marijnh/Postmodern), flexi-streams, bit-smasher, [cl-cidr-notation](https://github.com/AccelerationNet/cl-cidr-notation), symbol-munger, and [plokami](https://github.com/atomontage/plokami) are available on quicklisp
 
