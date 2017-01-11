@@ -1,7 +1,7 @@
 ;; Common Lisp network analysis toolkit
 ;;
 ;; td : 
-;; ipv6 assoc lookup, network map
+;; ipv6 transl, network map
 ;; dataram process -> db tables
 ;; IP/ident/src/dest/protoc assoc relations
 ;; source switching (isolation test)
@@ -15,6 +15,8 @@
 
 (load "~/projects/schnoz//cl-cidr-notation/src/packages.lisp")
 (load "~/projects/schnoz//cl-cidr-notation/src/cl-cidr-notation.lisp")
+(load "~/projects/schnoz//ipcalc-lisp/package.lisp")
+(load "~/projects/schnoz//ipcalc-lisp/ipcalc.lisp")
 
 (defun available-devices ()
   (plokami:find-all-devs))
@@ -133,6 +135,24 @@
 (defun bytes-to-string (byte-list)
   (flexi-streams:octets-to-string byte-list :external-format :utf-8))
 (defun hex-to-int (hex-str) (bit-smasher::int<- hex-str))
+(defun ipv6-addr-string (num)
+
+  (c+ (bit-smasher:hex<- (ldb (byte 2 0) num))
+      (bit-smasher:hex<- (ldb (byte 2 2) num)) ":"
+      (bit-smasher:hex<- (ldb (byte 2 4) num)) 
+      (bit-smasher:hex<- (ldb (byte 2 6) num)) ":"
+      (bit-smasher:hex<- (ldb (byte 2 8) num)) 
+      (bit-smasher:hex<- (ldb (byte 2 10) num)) ":"
+      (bit-smasher:hex<- (ldb (byte 2 12) num)) 
+      (bit-smasher:hex<- (ldb (byte 2 14) num)) ":"
+      (bit-smasher:hex<- (ldb (byte 2 16) num)) 
+      (bit-smasher:hex<- (ldb (byte 2 18) num)) ":"
+      (bit-smasher:hex<- (ldb (byte 2 20) num)) 
+      (bit-smasher:hex<- (ldb (byte 2 22) num))  ":"
+      (bit-smasher:hex<- (ldb (byte 2 24) num)) 
+      (bit-smasher:hex<- (ldb (byte 2 26) num)) 
+      )
+)
 
 (defun num-to-ip (num)
   (cl-cidr-notation:cidr-string num))
@@ -192,8 +212,43 @@
 	(num-to-ip daddr))
 )
 
+(deftype ipv6-array () '(ub16-sarray 8))
+
+(defun vector-to-colon-separated (vector &optional (case :downcase))
+  "Convert an (SIMPLE-ARRAY (UNSIGNED-BYTE 16) 8) to a colon-separated IPv6
+address. CASE may be :DOWNCASE or :UPCASE."  
+  (coerce vector 'ipv6-address)
+  (check-type case (member :upcase :downcase) "either :UPCASE or :DOWNCASE")
+  (let ((s (make-string-output-stream)))
+    (flet ((find-zeros ()
+             (let ((start (position 0 vector :start 1 :end 7)))
+               (when start
+                 (values start
+                         (position-if #'plusp vector :start start :end 7)))))
+           (princ-subvec (start end)
+             (loop :for i :from start :below end
+		:do (princ (aref vector i) s) (princ #\: s))))
+      (cond
+        ((ipv4-on-ipv6-mapped-vector-p vector)
+         (princ-ipv4-on-ipv6-mapped-address vector s))
+        (t
+         (let ((*print-base* 16) (*print-pretty* nil))
+           (when (plusp (aref vector 0)) (princ (aref vector 0) s))
+           (princ #\: s)
+           (multiple-value-bind (start end) (find-zeros)
+             (cond (start (princ-subvec 1 start)
+                          (princ #\: s)
+                          (when end (princ-subvec end 7)))
+                   (t (princ-subvec 1 7))))
+           (when (plusp (aref vector 7)) (princ (aref vector 7) s))))))
+    (let ((str (get-output-stream-string s)))
+      (ecase case
+        (:downcase (nstring-downcase str))
+        (:upcase (nstring-upcase str))))))
+
+
 (defun read-ethernet-frame (byte-list)
-  (setq stream (flexi-streams:make-flexi-stream
+  (setq frame-stream (flexi-streams:make-flexi-stream
 	     (flexi-streams:make-in-memory-input-stream
 	      byte-list))
 
@@ -208,8 +263,8 @@
 		      ((= val 2054) 'arp))))
      
   (list dest-mac src-mac ether-type
-	(cond ((eq ether-type 'ipv4) (process-ipv4-data stream))
-	      ((eq ether-type 'ipv6) (process-ipv6-data stream)))))
+	(cond ((eq ether-type 'ipv4) (process-ipv4-data frame-stream))
+	      ((eq ether-type 'ipv6) (process-ipv6-data frame-stream)))))
 
 (defun process-packet-buf! (buf-list)
   (setq byte-list (read-from-string (elt buf-list 0)))

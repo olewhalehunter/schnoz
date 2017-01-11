@@ -2,7 +2,7 @@
 
 Lispy network processing.
 
-requires postgreSQL; [postmodern](https://github.com/marijnh/Postmodern), flexi-streams, bit-smasher, [cl-cidr-notation](https://github.com/AccelerationNet/cl-cidr-notation), symbol-munger, and [plokami](https://github.com/atomontage/plokami) are available on quicklisp
+requires postgreSQL; [postmodern](https://github.com/marijnh/Postmodern), flexi-streams, bit-smasher, [cl-cidr-notation](https://github.com/AccelerationNet/cl-cidr-notation), symbol-munger, alexandria, ipcalc-lisp, cl-ppcre, ipand [plokami](https://github.com/atomontage/plokami) are available on quicklisp
 
 # Install
 
@@ -37,4 +37,4 @@ process packet contents
 "SQL record query done at : 3693092398"
 "Batch process done at : 3693092398"
 
-```
+```'
