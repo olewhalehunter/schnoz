@@ -67,7 +67,7 @@
 		     :promisc t 
 		     :snaplen 1500 
 		     :nbio t)
-    (plokami:set-filter plokami::pcap "ip")
+    ;; (plokami:set-filter plokami::pcap "ip")
 
     (setq begin (clock-time))
     (loop do 
@@ -129,6 +129,14 @@
           vectors))
 (defun list-to-bits (my-list)
   (make-array (length my-list) :initial-contents my-list :element-type 'bit))
+(defun octet->6bytes (a b c d e f)
+  (bit-smasher:int<- 
+   (list-to-bits (concat-bits (bit-smasher:bits<- a)
+			      (bit-smasher:bits<- b)
+			      (bit-smasher:bits<- c)
+			      (bit-smasher:bits<- d)
+			      (bit-smasher:bits<- e)
+			      (bit-smasher:bits<- f)))))
 (defun octet->u16 (upper lower)
   (bit-smasher:int<- 
    (list-to-bits (concat-bits (bit-smasher:bits<- upper)
@@ -218,14 +226,31 @@
 			    (in-byte) (in-byte)))
 
   (list version length next-header saddr daddr))
+
 (defun read-ethernet-frame (byte-list)
-)
+  (setq stream (flexi-streams:make-flexi-stream
+	     (flexi-streams:make-in-memory-input-stream
+	      byte-list))
+
+   dest-mac   (octet->6bytes (in-byte) (in-byte) (in-byte)
+			     (in-byte) (in-byte) (in-byte))
+   src-mac    (octet->6bytes (in-byte) (in-byte) (in-byte)
+			     (in-byte) (in-byte) (in-byte))
+   oct1 (in-byte)
+   oct2 (in-byte)
+   ether-type (let ((val (octet->u16 oct1 oct2)))
+		(cond ((and (= oct1 134) (= oct2 221)) 'ipv6)		      
+		      ((and (= oct1 8) (= oct2 0)) 'ipv4)
+		      ((= val 2054) 'arp)))  
+   data (in-byte))
+  
+  (list dest-mac src-mac ether-type))
 
 (defun process-packet-buf! (buf-list)
   (setq byte-list (read-from-string (elt buf-list 0)))
 
-  (setq metadata (read-ipv6-header byte-list))
-  (print buf-list)
+  (setq metadata (read-ethernet-frame byte-list))
+;;  (print buf-list)
   (format t "~%~a ~%" metadata)
 )
 (defun process-packets! (packet-list)
