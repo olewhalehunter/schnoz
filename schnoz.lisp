@@ -1,7 +1,8 @@
 ;; Common Lisp network analysis toolkit
 ;;
 ;; td : 
-;; header process -> db tables
+;; ipv6 assoc lookup, network map
+;; dataram process -> db tables
 ;; IP/ident/src/dest/protoc assoc relations
 ;; source switching (isolation test)
 ;; statistical packet analysis -> borealis
@@ -92,34 +93,8 @@
 (defun capture-eth0! (seconds)
   (capture-to-db! "eth0" seconds))
 
-
 (defun delete-before-id (id)
   (psql-q '("delete from packet where id < " id)))
-
-(setq ipv4-header-fields '(
-			(ver-ihl  :uint8) ;; 4 bits format + 4 bits length
-			(tos      :uint8) ;; type of service
-			(length   :uint16) ;; total length in octets
-			(id       :uint16) ;; sender val
-			(offset   :uint16) ;; where in datagram belongs
-			(ttl      :uint8)  ;; time to live
-			(protocol :uint8)  ;; protocol (see assinged nums)
-			(checksum :uint16) ;; header checksum
-			(saddr    :uint32) ;; source addr
-			(daddr    :uint32) ;; destination addr
-			'options            ;; security stuff,route info,see doc
-			'datagram-content
-			))
-(setq ipv6-header-field '(
-		       (version        4bits) ;; 0110
-		       (traffic-class  :uint8)		       
-		       (flow-label     20bits)
-		       (Payload-length :uint16)
-		       (next-header    :uint8) ;; same as ipv4 protocol #
-		       (hop-limit      :uint8)
-		       (source-addr    128bits)
-		       (dest-addr      128bits)
-))
 
 (defun concat-bits (&rest vectors)
   (reduce (lambda (a b) (concatenate
@@ -175,57 +150,47 @@
 
 (defun in-byte () (read-byte stream))
 
-(defun read-ipv4-header (byte-list) 
+(defun process-ipv6-data (stream) 
+  (setq ver-ihl (in-byte)
+     first-octet  (in-byte)
 
-  (setq stream (flexi-streams:make-flexi-stream
-	     (flexi-streams:make-in-memory-input-stream
-	      byte-list))
+     version      (ldb (byte 0 4) first-octet) 
+     traf-class1  (ldb (byte 4 4) first-octet) 
+     second-octet (in-byte)                    
 
-   first-octet  (in-byte)
+     traf-class2 (ldb (byte 0 4) second-octet) 
+     flow-label1 (ldb (byte 4 4) second-octet) 
 
-   version      (ldb (byte 0 4) first-octet)
-   ihl          (ldb (byte 4 4) first-octet)
-   tos          (in-byte)
-   length       (octet->u16 (in-byte) (in-byte))
-   id           (octet->u16 (in-byte) (in-byte))
-   flags-n-offset       (octet->u16 (in-byte) (in-byte))
-   ttl          (in-byte)
-   protocol     (in-byte) ;; see prtcol #s
-   checksum     (octet->u16 (in-byte) (in-byte))
-   saddr        (octet->u32 (in-byte) (in-byte)
-			    (in-byte) (in-byte))
-   daddr        (octet->u32 (in-byte) (in-byte)
-			    (in-byte) (in-byte)))
+     flow-label2 (octet->u16 (in-byte) (in-byte)) 
+     length      (octet->u16 (in-byte) (in-byte))
+     next-header (in-byte)
+     hop-limit   (in-byte)   
+     saddr        (octet->u128 (in-byte) (in-byte)
+			       (in-byte) (in-byte)
+			       (in-byte) (in-byte))
+     daddr        (octet->u128 (in-byte) (in-byte)
+			       (in-byte) (in-byte)
+			       (in-byte) (in-byte))) 
+  (list length next-header saddr daddr)
+)
 
-  (list version ihl tos length id flags-n-offset 
-	ttl protocol checksum saddr daddr))
-(defun read-ipv6-header (byte-list) 
-
-  (setq stream (flexi-streams:make-flexi-stream
-	     (flexi-streams:make-in-memory-input-stream
-	      byte-list))
-
-   first-octet  (in-byte)
-
-   version      (ldb (byte 0 4) first-octet) 
-   traf-class1  (ldb (byte 4 4) first-octet) 
-   second-octet (in-byte)                    
-
-   traf-class2 (ldb (byte 0 4) second-octet) 
-   flow-label1 (ldb (byte 4 4) second-octet) 
-
-   flow-label2 (octet->u16 (in-byte) (in-byte)) 
-   length      (octet->u16 (in-byte) (in-byte))
-   next-header (in-byte)
-   hop-limit   (in-byte)   
-   saddr        (octet->u128 (in-byte) (in-byte)
-			    (in-byte) (in-byte)
-			    (in-byte) (in-byte))
-   daddr        (octet->u128 (in-byte) (in-byte)
-			    (in-byte) (in-byte)
-			    (in-byte) (in-byte)))
-
-  (list version length next-header saddr daddr))
+(defun process-ipv4-data (stream) 
+  (setq ver-ihl (in-byte)
+     ihl  (ldb (byte 4 4) ver-ihl)
+     tos (in-byte)
+     length       (octet->u16 (in-byte) (in-byte))
+     id           (octet->u16 (in-byte) (in-byte))
+     flags-n-offset       (octet->u16 (in-byte) (in-byte))
+     ttl          (in-byte)
+     protocol     (in-byte) ;; see prtcol #s
+     checksum     (octet->u16 (in-byte) (in-byte))
+     saddr        (octet->u32 (in-byte) (in-byte)
+			      (in-byte) (in-byte))
+     daddr        (octet->u32 (in-byte) (in-byte)
+			      (in-byte) (in-byte)))   
+  (list ihl length id protocol (num-to-ip saddr)
+	(num-to-ip daddr))
+)
 
 (defun read-ethernet-frame (byte-list)
   (setq stream (flexi-streams:make-flexi-stream
@@ -236,21 +201,21 @@
 			     (in-byte) (in-byte) (in-byte))
    src-mac    (octet->6bytes (in-byte) (in-byte) (in-byte)
 			     (in-byte) (in-byte) (in-byte))
-   oct1 (in-byte)
-   oct2 (in-byte)
+   oct1 (in-byte) oct2 (in-byte)
    ether-type (let ((val (octet->u16 oct1 oct2)))
 		(cond ((and (= oct1 134) (= oct2 221)) 'ipv6)		      
 		      ((and (= oct1 8) (= oct2 0)) 'ipv4)
-		      ((= val 2054) 'arp)))  
-   data (in-byte))
-  
-  (list dest-mac src-mac ether-type))
+		      ((= val 2054) 'arp))))
+     
+  (list dest-mac src-mac ether-type
+	(cond ((eq ether-type 'ipv4) (process-ipv4-data stream))
+	      ((eq ether-type 'ipv6) (process-ipv6-data stream)))))
 
 (defun process-packet-buf! (buf-list)
   (setq byte-list (read-from-string (elt buf-list 0)))
 
   (setq metadata (read-ethernet-frame byte-list))
-;;  (print buf-list)
+
   (format t "~%~a ~%" metadata)
 )
 (defun process-packets! (packet-list)
