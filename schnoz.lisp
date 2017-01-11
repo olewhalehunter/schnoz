@@ -1,10 +1,13 @@
 ;; Common Lisp network analysis toolkit
 ;;
 ;; td : 
-;; ipv6 transl (as scanning hex bytes), network map
-;; dataram process -> db tables
-;; IP/ident/src/dest/protoc assoc relations
+;; mac addr translate
+;; ip db register 
+;; packet metadata db register
+;; ident db register
+;; network map
 ;; source switching (isolation test)
+;; ip firewall from lisp
 ;; statistical packet analysis -> borealis
 ;; chart of measures on packets by session target
 ;; kommissar builtin reqs
@@ -13,11 +16,10 @@
 ;; category lisp, better orm, clean
 ;; ipv6 vs ipv4 packets, all on 6 rn
 
-(load "~/projects/schnoz//cl-cidr-notation/src/packages.lisp")
-(load "~/projects/schnoz//cl-cidr-notation/src/cl-cidr-notation.lisp")
-(load "~/projects/schnoz//ipcalc-lisp/package.lisp")
-(load "~/projects/schnoz//ipcalc-lisp/ipcalc.lisp")
-
+(defun load-reqs ()
+  (load "~/projects/schnoz//cl-cidr-notation/src/packages.lisp")
+  (load "~/projects/schnoz//cl-cidr-notation/src/cl-cidr-notation.lisp")
+) (load-reqs)
 (defun available-devices ()
   (plokami:find-all-devs))
 (defun db-connect ()
@@ -84,13 +86,16 @@
        until (> (clock-time) (+ begin time-seconds)))
        ))
   
-(defun capture-wlan0! (seconds)
+
+(defun d~ () 
   (handler-case (progn (format 
 			t (concatenate 'string
 				       "~%~%"
-				       " " rr "|~%~%"))
+				       "   |" rr "|~%~%"))
 		       (finish-output nil))
-    (error (condition)))
+    (error (condition))))
+(defun capture-wlan0! (seconds)
+  (d~)
   (capture-to-db! "wlan0" seconds))
 (defun capture-eth0! (seconds)
   (capture-to-db! "eth0" seconds))
@@ -168,33 +173,42 @@
 (defun profile-s (process-desc)
   (format t "~% ~a at : ~a" process-desc (get-universal-time)))
 
-(defun in-byte () (read-byte stream))
+(defun in-byte () (read-byte frame-stream))
 
+(defun hex (dec)
+  (bit-smasher:hex<- dec))
+
+(defun scan-ipv6-text-addr ()
+  (c+ (hex (in-byte)) (hex (in-byte)) ":"
+      (hex (in-byte)) (hex (in-byte)) ":"
+      (hex (in-byte)) (hex (in-byte)) ":"
+      (hex (in-byte)) (hex (in-byte)) ":"
+      (hex (in-byte)) (hex (in-byte)) ":"
+      (hex (in-byte)) (hex (in-byte)) ":"
+      (hex (in-byte)) (hex (in-byte)) ":"
+      (hex (in-byte)) (hex (in-byte))))
 (defun process-ipv6-data (stream) 
-  (setq ver-ihl (in-byte)
-     first-octet  (in-byte)
+  (setq first-byte (in-byte)
+     version (ldb (byte 4 4) first-byte)
+     traf-class  (ldb (byte 0 4) first-byte) 
 
-     version      (ldb (byte 0 4) first-octet) 
-     traf-class1  (ldb (byte 4 4) first-octet) 
-     second-octet (in-byte)                    
+     flow-class (list (hex (in-byte)) 
+		  (hex (in-byte))
+		  (hex (in-byte)))
 
-     traf-class2 (ldb (byte 0 4) second-octet) 
-     flow-label1 (ldb (byte 4 4) second-octet) 
-
-     flow-label2 (octet->u16 (in-byte) (in-byte)) 
      length      (octet->u16 (in-byte) (in-byte))
      next-header (in-byte)
      hop-limit   (in-byte)
 
-     ;; manual hex in
-     saddr        (octet->u128 (in-byte) (in-byte)
-			       (in-byte) (in-byte)
-			       (in-byte) (in-byte))
-
-     daddr        (octet->u128 (in-byte) (in-byte)
-			       (in-byte) (in-byte)
-			       (in-byte) (in-byte))) 
-  (list length next-header saddr daddr)
+     saddr        (scan-ipv6-text-addr)
+     daddr        (scan-ipv6-text-addr)
+     ) 
+  (list "ver:" version
+	"len:" length
+	"traf class:" traf-class
+	"flow class:" flow-class
+	"next-header:" next-header
+	"addrs:" saddr daddr)
 )
 
 (defun process-ipv4-data (stream) 
@@ -215,40 +229,6 @@
 	(num-to-ip daddr))
 )
 
-(deftype ipv6-array () '(ub16-sarray 8))
-
-(defun vector-to-colon-separated (vector &optional (case :downcase))
-  "Convert an (SIMPLE-ARRAY (UNSIGNED-BYTE 16) 8) to a colon-separated IPv6
-address. CASE may be :DOWNCASE or :UPCASE."  
-  (coerce vector 'ipv6-address)
-  (check-type case (member :upcase :downcase) "either :UPCASE or :DOWNCASE")
-  (let ((s (make-string-output-stream)))
-    (flet ((find-zeros ()
-             (let ((start (position 0 vector :start 1 :end 7)))
-               (when start
-                 (values start
-                         (position-if #'plusp vector :start start :end 7)))))
-           (princ-subvec (start end)
-             (loop :for i :from start :below end
-		:do (princ (aref vector i) s) (princ #\: s))))
-      (cond
-        ((ipv4-on-ipv6-mapped-vector-p vector)
-         (princ-ipv4-on-ipv6-mapped-address vector s))
-        (t
-         (let ((*print-base* 16) (*print-pretty* nil))
-           (when (plusp (aref vector 0)) (princ (aref vector 0) s))
-           (princ #\: s)
-           (multiple-value-bind (start end) (find-zeros)
-             (cond (start (princ-subvec 1 start)
-                          (princ #\: s)
-                          (when end (princ-subvec end 7)))
-                   (t (princ-subvec 1 7))))
-           (when (plusp (aref vector 7)) (princ (aref vector 7) s))))))
-    (let ((str (get-output-stream-string s)))
-      (ecase case
-        (:downcase (nstring-downcase str))
-        (:upcase (nstring-upcase str))))))
-
 
 (defun read-ethernet-frame (byte-list)
   (setq frame-stream (flexi-streams:make-flexi-stream
@@ -265,7 +245,9 @@ address. CASE may be :DOWNCASE or :UPCASE."
 		      ((and (= oct1 8) (= oct2 0)) 'ipv4)
 		      ((= val 2054) 'arp))))
      
-  (list dest-mac src-mac ether-type
+  (list "dest-mac:" dest-mac
+	"src-mac:" src-mac
+	"ether-type:" ether-type (hex oct1) (hex oct2)
 	(cond ((eq ether-type 'ipv4) (process-ipv4-data frame-stream))
 	      ((eq ether-type 'ipv6) (process-ipv6-data frame-stream)))))
 
@@ -290,10 +272,7 @@ address. CASE may be :DOWNCASE or :UPCASE."
   (profile-s "SQL record query done") 
 
   (profile-s "Batch process done")   
-  (format 
-   t (concatenate 'string
-		  "~%~%"
-		  " " rr "|~%~%"))
+  (d~)
 )
 (defun latest-batch! (n)
   (process-batch! (- (latest-packet-id) (+ n 1)) (latest-packet-id)))

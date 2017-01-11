@@ -21,18 +21,24 @@ connect to the database and capture traffic
 
 process packet contents
 ```lisp
-(latest-batch! 5) ;; read last 5 packets from db ->
+(latest-batch! 3) ;; read last 3 packets from db ->
 
 "Batch process startup at : 3693092398"
-(272883577289159 198414855633894 IPV6 (8198 57 8764690268168 13194139533312)) 
 
-(272883577289159 198414855633894 IPV6 (17926 57 8764690268168 13194139533312)) 
+(dest-mac: 272883577289159 src-mac: 198414855633894 ether-type: IPV6 86 dd
+ (ver: 6 len: 1358 traf class: 0 flow class: (00 00 00) next-header: 17 addrs:
+  2607:f8b0:401a:0026:0000:0000:0000:000c
+  2601:02c6:0100:1ed5:a5c4:9f50:7cb3:b234)) 
 
-(198414855633894 272883577289159 IPV6 (8198 64 1111423516702 234456553719863)) 
+(dest-mac: 272883577289159 src-mac: 198414855633894 ether-type: IPV6 86 dd
+ (ver: 6 len: 1358 traf class: 0 flow class: (00 00 00) next-header: 17 addrs:
+  2607:f8b0:401a:0026:0000:0000:0000:000c
+  2601:02c6:0100:1ed5:a5c4:9f50:7cb3:b234)) 
 
-(272883577289159 198414855633894 IPV6 (8198 57 8764690268168 13194139533312)) 
-
-(272883577289159 198414855633894 IPV4 (4 40 39250 6 58.75.35.205 192.168.1.249)) 
+(dest-mac: 272883577289159 src-mac: 198414855633894 ether-type: IPV6 86 dd
+ (ver: 6 len: 1358 traf class: 0 flow class: (00 00 00) next-header: 17 addrs:
+  2607:f8b0:401a:0026:0000:0000:0000:000c
+  2601:02c6:0100:1ed5:a5c4:9f50:7cb3:b234)) 
 
 "SQL record query done at : 3693092398"
 "Batch process done at : 3693092398"
@@ -41,8 +47,8 @@ process packet contents
 
 # Development
 
-tools such as wireshark can be used to analyze packet formats and data byte by byte
-for debugging datagram parsing
+tools such as wireshark can be used to develop packet formats and data byte by byte
+for schnoz datagram parsing and network capabilities
 
 use bitwise functions such as 'concat-bits or 'octet->u16 from schnoz.lisp to distribute and pack bit values from packet buffers
 
