@@ -1,11 +1,12 @@
 ;; Common Lisp network analysis toolkit
 ;;
 ;; td : 
-;; whois parse -> org, address, netrange
-;; -> ident db register
+;; ident db register script gen (alter desc)
+;; datagram content-type
+;; wireshark-like live capture info
 ;; block prescription list gen -> sh
 ;; daily interval sniff scheduler
-;; network map
+;; network map, responsive devices,ethernet convrsations
 ;; source switching (isolation test)
 ;; statistical packet analysis -> borealis
 ;; chart of measures on packets by session target
@@ -193,7 +194,7 @@
 		  (hex (in-byte)))
 
      length      (octet->u16 (in-byte) (in-byte))
-     next-header (in-byte)
+     next-header (in-byte) ;; protocol
      hop-limit   (in-byte)
 
      saddr        (scan-ipv6-text-addr)
@@ -339,7 +340,7 @@
   (process-batch! (- (latest-packet-id) (+ n 1)) (latest-packet-id)))
   
 (defun select-by-identity (identity) 
-  (psql-q '("select from packetident where packet = identity")))
+  (q "select from packetident where packet = "))
 (defun delete-before-id (id)
   (psql-q '("delete from packet where id < " id)))
 

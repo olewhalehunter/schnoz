@@ -41,8 +41,9 @@
       (puthash name ht (scanner begin-token end-token)))))
 (scanners-to-ht 
  '(
-   (org-name "OrgName:" "")
-   (address "Address" "")
+   (org-address "City+.+" "\n")
+   (org-name "OrgName+.+" "\n")  
+   (net-range "NetRange+.+" "\n")
    )
  *scanners*) 
 
@@ -53,9 +54,12 @@
 
 (defun parse-whois (url)
     
-  (setq fields (list
-   (scrape-delim (get-scanner 'address) url)
-   (scrape-delim (get-scanner 'org-name) url)))
+  (setq fields (list   
+   (scrape-delim (get-scanner 'org-name) url)
+   (scrape-delim (get-scanner 'org-address) url)
+   (scrape-delim (get-scanner 'net-range) url)
+   )
+)
 
   (format t "~a" fields)
 
