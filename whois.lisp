@@ -26,7 +26,38 @@
   (format nil "whois lookup result: ~a" whois-result)
 )
 
-(defun parse-whois (str)
+(setq *scanners* (make-hash-table))
+(defun get-scanner (name)
+  (gethash name *scanners*))
+(defun scanner (begin-token end-token)
+  (cl-ppcre::create-scanner (concatenate 'string
+					 begin-token "(.+?)" end-token)))
+(defun puthash (key hash-table object)
+  (setf (gethash key hash-table) object))
+(defun scanners-to-ht (list-of-scanners ht)
+  (dolist (l list-of-scanners)
+    (destructuring-bind (name begin-token end-token)
+        l
+      (puthash name ht (scanner begin-token end-token)))))
+(scanners-to-ht 
+ '(
+   (org-name "OrgName:" "")
+   (address "Address" "")
+   )
+ *scanners*) 
 
-  (list org-name address netrange)
+(defun scrape-delim (scanner url)
+  (cl-ppcre:all-matches-as-strings 
+   scanner
+   (whois url)))
+
+(defun parse-whois (url)
+    
+  (setq fields (list
+   (scrape-delim (get-scanner 'address) url)
+   (scrape-delim (get-scanner 'org-name) url)))
+
+  (format t "~a" fields)
+
+  fields
 )
