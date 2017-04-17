@@ -1,21 +1,3 @@
-;; Common Lisp network analysis toolkit
-;;
-;; td : 
-;; ident db register script gen (alter desc)
-;; datagram content-type
-;; wireshark-like live capture info
-;; block prescription list gen -> sh
-;; daily interval sniff scheduler
-;; network map, responsive devices,ethernet convrsations
-;; source switching (isolation test)
-;; statistical packet analysis -> borealis
-;; chart of measures on packets by session target
-;; kommissar builtin reqs
-;; device sql tables
-;; category lisp, better orm, clean
-;; empty query case
-
-
 (defun load-reqs ()
   (load "config.lisp")
   (load "~/projects/schnoz//cl-cidr-notation/src/packages.lisp")
@@ -49,6 +31,8 @@
 	      "name TEXT)"))
 )
 
+(defmacro rep (func args)
+  `(,func ,@args))
 (defun c+ (&rest strings)
   (apply #'concatenate 'string strings))
 (defun join-str (seq delim)
@@ -235,22 +219,25 @@
 		 (in-byte) (in-byte) (in-byte)))
 (defun read-ethernet-frame (byte-list)
   (setq frame-stream (flexi-streams:make-flexi-stream
-	     (flexi-streams:make-in-memory-input-stream
-	      byte-list))
+		   (flexi-streams:make-in-memory-input-stream
+		    byte-list))
 
-   dest-mac   (scan-MAC-text-addr)
-   src-mac    (scan-MAC-text-addr)
-   oct1 (in-byte) oct2 (in-byte)
-   ether-type (let ((val (octet->u16 oct1 oct2)))
-		(cond ((and (= oct1 134) (= oct2 221)) 'ipv6)		      
-		      ((and (= oct1 8) (= oct2 0)) 'ipv4)
-		      ((= val 2054) 'arp))))
-     
+     dest-mac   (scan-MAC-text-addr)
+     src-mac    (scan-MAC-text-addr)
+     oct1 (in-byte) oct2 (in-byte)
+     ether-type (let ((val (octet->u16 oct1 oct2)))
+		  (cond ((and (= oct1 134) (= oct2 221)) 'ipv6)		      
+			((and (= oct1 8) (= oct2 0)) 'ipv4)
+			((= val 2054) 'arp))))
+  
   (list "dest-mac:" dest-mac
 	"src-mac:" src-mac
 	"ether-type:" ether-type (hex oct1) (hex oct2)
 	(cond ((eq ether-type 'ipv4) (process-ipv4-data frame-stream))
-	      ((eq ether-type 'ipv6) (process-ipv6-data frame-stream)))))
+	      ((eq ether-type 'ipv6) (process-ipv6-data frame-stream))
+	      (t (list 0 0 0))
+
+	      )))
 
 (defun ip-registered? (ip)
   (caar (q "select id from ip where addr = '" ip "'")))
@@ -266,7 +253,7 @@
   (setq addr-id (car (car 
 		   (sql-get-ip addr-str))))
 
-  (format t "new address registed in db #~a~%~%" addr-id)
+  (format t "new address registered in db #~a~%~%" addr-id)
   addr-id
 )
 
@@ -275,7 +262,7 @@
 (defun update-packet-field (packet-id field value)
   (q "update packet set " field " = " value " where id = " (to-str packet-id)))
 
-(defun update-packet-info! (packet-id length type saddr-id daddr-id)
+(defun update-packet! (packet-id length type saddr-id daddr-id)
   (q "update packet set length = " (to-str length) ",type = '" (to-str type) "'"
      "  where id = " (to-str packet-id))
   (if saddr-id (update-packet-field packet-id "saddr" (to-str saddr-id)))
@@ -295,22 +282,22 @@
      daddr (nth 12 ip-frame)
      length (cond ((eq type 'IPV6) (nth 3 ip-frame))
 		  ((eq type 'IPV4) (nth 2 ip-frame))
-		  (t nil))
+		  (t 0))
      )
   (format t "~%~a ~%" data type) 
 
   (setq src-ip-id (ip-registered? saddr)
      dest-ip-id (ip-registered? daddr))
   
-  (update-packet-info! packet-id
-		       length
-		       type
-		       (if src-ip-id 
-			   (format t "Source addr already registered~%") 
-			   (register-new-addr! saddr))
-		       (if dest-ip-id 
-			   (format t "Destination addr already registered~%")
-			   (register-new-addr! daddr)))
+  (update-packet! packet-id
+		  length
+		  type
+		  (if src-ip-id 
+		      (format t "Source addr already registered~%") 
+		      (register-new-addr! saddr))
+		  (if dest-ip-id 
+		      (format t "Destination addr already registered~%")
+		      (register-new-addr! daddr)))
   )
   
 (defun process-packets! (packet-list)
